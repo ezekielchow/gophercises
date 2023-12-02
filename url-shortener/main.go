@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 
 	"urlshortener/helpers"
 )
 
 func main() {
 
-	ymlFile := flag.String("yaml", "", "yaml file to map paths for redirection")
+	filePath := flag.String("filePath", "", "file path to map paths for redirection")
+	// jsonFile := flag.String("json", "", "json file to map paths for redirection")
 	flag.Parse()
 
 	mux := defaultMux()
@@ -23,19 +25,31 @@ func main() {
 	}
 	mapHandler := helpers.MapHandler(pathsToUrls, mux)
 
-	// Build the YAMLHandler using the mapHandler as the
-	// fallback
-	yaml, err := readYaml(*ymlFile)
+	fileBytes, err := readFile(*filePath)
 	if err != nil {
 		panic(err)
 	}
 
-	yamlHandler, err := helpers.YAMLHandler([]byte(yaml), mapHandler)
-	if err != nil {
-		panic(err)
+	var handler http.HandlerFunc
+
+	fileExtension := path.Ext(*filePath)
+	switch fileExtension {
+	case ".yaml", ".yml":
+		handler, err = helpers.YAMLHandler([]byte(fileBytes), mapHandler)
+		if err != nil {
+			panic(err)
+		}
+	case ".json":
+		handler, err = helpers.JSONHandler([]byte(fileBytes), mapHandler)
+		if err != nil {
+			panic(err)
+		}
+	default:
+		handler = mapHandler
 	}
-	// fmt.Println("Starting the server on :8080")
-	http.ListenAndServe(":8080", yamlHandler)
+
+	fmt.Println("Starting the server on :8080")
+	http.ListenAndServe(":8080", handler)
 }
 
 func defaultMux() *http.ServeMux {
@@ -48,15 +62,15 @@ func hello(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Hello, world!")
 }
 
-func readYaml(fileName string) ([]byte, error) {
+func readFile(fileName string) ([]byte, error) {
 	if fileName == "" {
 		return nil, nil
 	}
 
-	yaml, err := os.ReadFile(fileName)
+	fileByte, err := os.ReadFile(fileName)
 	if err != nil {
 		return nil, err
 	}
 
-	return yaml, nil
+	return fileByte, nil
 }

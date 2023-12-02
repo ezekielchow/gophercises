@@ -1,8 +1,11 @@
 package helpers
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -46,8 +49,8 @@ func MapHandler(pathsToUrls map[string]string, fallback http.Handler) http.Handl
 // See MapHandler to create a similar http.HandlerFunc via
 // a mapping of paths to urls.
 type PathUrl struct {
-	Path string `yaml:"path"`
-	URL  string `yaml:"url"`
+	Path string `yaml:"path" json:"path,omitempty"`
+	URL  string `yaml:"url" json:"url,omitempty"`
 }
 
 func YAMLHandler(yml []byte, fallback http.Handler) (http.HandlerFunc, error) {
@@ -59,10 +62,36 @@ func YAMLHandler(yml []byte, fallback http.Handler) (http.HandlerFunc, error) {
 		return nil, err
 	}
 
-	pathsToUrl := map[string]string{}
-	for _, v := range pathUrls {
-		pathsToUrl[v.Path] = v.URL
-	}
+	pathsToUrl := pathArrayToMap(pathUrls)
 
 	return MapHandler(pathsToUrl, fallback), nil
+}
+
+func JSONHandler(jsonByte []byte, fallback http.Handler) (http.HandlerFunc, error) {
+
+	pathsUrls := []PathUrl{}
+
+	dec := json.NewDecoder(strings.NewReader(string(jsonByte)))
+	for {
+		if err := dec.Decode(&pathsUrls); err == io.EOF {
+			break
+		} else if err != nil {
+			panic(err)
+		}
+	}
+
+	pathsToUrl := pathArrayToMap(pathsUrls)
+
+	return MapHandler(pathsToUrl, fallback), nil
+
+}
+
+func pathArrayToMap(arr []PathUrl) map[string]string {
+	paths := make(map[string]string)
+
+	for _, v := range arr {
+		paths[v.Path] = v.URL
+	}
+
+	return paths
 }
