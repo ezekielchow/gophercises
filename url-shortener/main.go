@@ -13,7 +13,7 @@ import (
 func main() {
 
 	filePath := flag.String("filePath", "", "file path to map paths for redirection")
-	// jsonFile := flag.String("json", "", "json file to map paths for redirection")
+	dsn := flag.String("dsn", "", "dsn to sqlite file")
 	flag.Parse()
 
 	mux := defaultMux()
@@ -46,6 +46,13 @@ func main() {
 		}
 	default:
 		handler = mapHandler
+	}
+
+	if *dsn != "" {
+		handler, err = helpers.DBHandler(*dsn, mapHandler)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	fmt.Println("Starting the server on :8080")

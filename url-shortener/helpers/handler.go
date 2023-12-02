@@ -1,11 +1,14 @@
 package helpers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	_ "github.com/mattn/go-sqlite3"
 
 	"gopkg.in/yaml.v3"
 )
@@ -94,4 +97,38 @@ func pathArrayToMap(arr []PathUrl) map[string]string {
 	}
 
 	return paths
+}
+
+func DBHandler(dsn string, fallback http.Handler) (http.HandlerFunc, error) {
+	pathsUrl := []PathUrl{}
+
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query("select * from routes")
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			id   int64
+			path string
+			url  string
+		)
+		err := rows.Scan(&id, &path, &url)
+		if err != nil {
+			panic(err)
+		}
+
+		pathsUrl = append(pathsUrl, PathUrl{Path: path, URL: url})
+	}
+
+	pathsMap := pathArrayToMap(pathsUrl)
+
+	return MapHandler(pathsMap, fallback), nil
 }
