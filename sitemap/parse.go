@@ -1,31 +1,31 @@
 package main
 
 import (
-	"flag"
+	"io"
 	"log"
-	"os"
 	"strings"
 
 	"golang.org/x/net/html"
 )
 
 func main() {
-	Run()
+	// Run()
+	BuildSitemap()
 }
 
-func Run() {
-	fileName := flag.String("file", "", "the name of the html file to parse")
-	flag.Parse()
+// func Run() {
+// 	fileName := flag.String("file", "", "the name of the html file to parse")
+// 	flag.Parse()
 
-	links, err := ParseHtml(*fileName)
-	if err != nil {
-		log.Fatalf("Error parsing html file: %s", err)
-	}
+// 	links, err := ParseHtml(*fileName)
+// 	if err != nil {
+// 		log.Fatalf("Error parsing html file: %s", err)
+// 	}
 
-	for _, link := range links {
-		log.Printf("Link: %v", link)
-	}
-}
+// 	for _, link := range links {
+// 		log.Printf("Link: %v", link)
+// 	}
+// }
 
 type Link struct {
 	Href string
@@ -78,16 +78,16 @@ func text(n *html.Node) string {
 	return strings.Join(strings.Fields(ret), " ")
 }
 
-func ParseHtml(fileName string) ([]Link, error) {
+func ParseHtml(r io.Reader) ([]Link, error) {
 
-	file, err := os.Open(fileName)
+	// file, err := os.Open(fileName)
 
-	if err != nil {
-		log.Fatalf("Error opening file: %s", err)
-		return nil, err
-	}
+	// if err != nil {
+	// 	log.Fatalf("Error opening file: %s", err)
+	// 	return nil, err
+	// }
 
-	doc, err := html.Parse(file)
+	doc, err := html.Parse(r)
 
 	if err != nil {
 		log.Fatalf("Error parsing html: %s", err)

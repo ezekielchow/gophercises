@@ -2,4 +2,7 @@ go 1.22.0
 
 use ./url-shortener
 
-use ./sitemap
+use (
+	./quiet-hacker-news
+	./sitemap
+)
