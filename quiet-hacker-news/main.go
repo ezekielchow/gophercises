@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"quiet-hacker-news/hn"
@@ -82,11 +83,50 @@ func getStories(ids []int, numStories int) []item {
 	return stories
 }
 
+type storyCache struct {
+	stories      []item
+	cacheMutex   sync.Mutex
+	expiration   time.Time
+	duration     time.Duration
+	numOfStories int
+}
+
+func (sc *storyCache) refresh() {
+	go func() {
+		tc := time.NewTicker(time.Second * 3)
+		for {
+
+			var client hn.Client
+
+			ids, err := client.TopItems()
+			if err != nil {
+				log.Fatal("Failed to query top items")
+			}
+
+			stories := getStories(ids, sc.numOfStories)
+
+			sc.cacheMutex.Lock()
+			sc.stories = stories
+			sc.expiration = time.Now().Add(sc.duration)
+			sc.cacheMutex.Unlock()
+
+			<-tc.C
+		}
+	}()
+}
+
 func handler(numStories int, tpl *template.Template) http.HandlerFunc {
+
+	sc := storyCache{
+		duration:     time.Second * 3,
+		numOfStories: 30,
+	}
+	sc.refresh()
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		stories, err := getCachedStories(numStories)
+		stories, err := sc.cachedStories()
 		if err != nil {
 			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
 			return
@@ -104,77 +144,28 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	})
 }
 
-var (
-	cacheA        []item
-	cacheB        []item
-	cacheExpireAt time.Time
-	lastRequestAt time.Time
-	usedCache     string
-)
+func (sc *storyCache) cachedStories() ([]item, error) {
 
-func getCachedStories(numOfStories int) ([]item, error) {
+	sc.cacheMutex.Lock()
+	defer sc.cacheMutex.Unlock()
 
-	if usedCache == "" {
-		// initialize base cache
-		usedCache = "A"
-		lastRequestAt = time.Now().Add(time.Second * 15)
-		cacheExpireAt = time.Now().Add(time.Second * 10)
-
-		var client hn.Client
-
-		ids, err := client.TopItems()
-		if err != nil {
-			return nil, err
-		}
-
-		stories := getStories(ids, numOfStories)
-		cacheA = stories
-		return cacheA, nil
+	if time.Since(sc.expiration) < 0 {
+		return sc.stories, nil
 	}
 
-	//if usedCache == 'A' && cached expired, refresh cache B. vice versa
-	if cacheExpireAt.Before(time.Now()) {
-		go func() {
-			// reset cache expiry date
-			cacheExpireAt = time.Now().Add(time.Second * 10)
+	var client hn.Client
 
-			var client hn.Client
-
-			ids, err := client.TopItems()
-			if err != nil {
-				log.Fatal("Fail to get top items")
-				return
-			}
-
-			stories := getStories(ids, numOfStories)
-
-			if usedCache == "A" {
-				cacheB = stories
-			} else {
-				cacheA = stories
-			}
-			fmt.Println("cache refreshed")
-		}()
+	ids, err := client.TopItems()
+	if err != nil {
+		return []item{}, err
 	}
 
-	// if last request expired, use the other cache
-	if lastRequestAt.Before(time.Now()) {
-		fmt.Println("changing cache")
+	stories := getStories(ids, sc.numOfStories)
 
-		lastRequestAt = time.Now().Add(time.Second * 15)
+	sc.stories = stories
+	sc.expiration = time.Now().Add(sc.duration)
+	return sc.stories, nil
 
-		if usedCache == "A" {
-			return cacheB, nil
-		} else {
-			return cacheA, nil
-		}
-	}
-
-	if usedCache == "A" {
-		return cacheA, nil
-	}
-
-	return cacheB, nil
 }
 
 func isStoryLink(item item) bool {
