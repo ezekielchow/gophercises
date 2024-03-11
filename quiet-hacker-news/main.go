@@ -47,45 +47,50 @@ func getStory(id int, index int, ch chan<- item) {
 	log.Default().Println("Not a story")
 }
 
+func getStories(ids []int, numStories int) []item {
+	var stories []item
+
+	rounds := 0
+	storyCh := make(chan item)
+
+	for len(stories) < numStories {
+
+		itemsToQuery := int(math.Ceil(1.25 * float64(numStories)))
+
+		for i := rounds * itemsToQuery; i < (rounds+1)*itemsToQuery; i++ {
+			if i > len(ids)-1 {
+				break
+			}
+
+			go func() {
+				getStory(ids[i], i, storyCh)
+			}()
+
+		}
+
+		for i := 0; i < itemsToQuery; i++ {
+			stories = append(stories, <-storyCh)
+		}
+
+		rounds++
+	}
+
+	sort.Slice(stories, func(i, j int) bool {
+		return stories[i].index < stories[j].index
+	})
+
+	return stories
+}
+
 func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		var client hn.Client
-		ids, err := client.TopItems()
+
+		stories, err := getCachedStories(numStories)
 		if err != nil {
 			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
 			return
 		}
-		var stories []item
-
-		rounds := 0
-		storyCh := make(chan item)
-
-		for len(stories) < numStories {
-
-			itemsToQuery := int(math.Ceil(1.25 * float64(numStories)))
-
-			for i := rounds * itemsToQuery; i < (rounds+1)*itemsToQuery; i++ {
-				if i > len(ids)-1 {
-					break
-				}
-
-				go func() {
-					getStory(ids[i], i, storyCh)
-				}()
-
-			}
-
-			for i := 0; i < itemsToQuery; i++ {
-				stories = append(stories, <-storyCh)
-			}
-
-			rounds++
-		}
-
-		sort.Slice(stories, func(i, j int) bool {
-			return stories[i].index < stories[j].index
-		})
 
 		data := templateData{
 			Stories: stories[0:numStories],
@@ -97,6 +102,31 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			return
 		}
 	})
+}
+
+var (
+	cache    []item
+	expireAt time.Time
+)
+
+func getCachedStories(numOfStories int) ([]item, error) {
+	if expireAt.Before(time.Now()) {
+
+		// reset time
+		expireAt = time.Now().Add(time.Second * 10)
+
+		var client hn.Client
+
+		ids, err := client.TopItems()
+		if err != nil {
+			return nil, err
+		}
+
+		stories := getStories(ids, numOfStories)
+		cache = stories
+	}
+
+	return cache, nil
 }
 
 func isStoryLink(item item) bool {
