@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"html/template"
@@ -11,7 +10,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"quiet-hacker-news/hn"
@@ -32,18 +30,21 @@ func main() {
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }
 
-func getStory(client hn.Client, id int, index int) (item, error) {
+func getStory(id int, index int, ch chan<- item) {
+	var client hn.Client
+
 	i, err := client.GetItem(id)
 	if err != nil {
-		return item{}, err
+		log.Default().Println("Error getting item")
+		return
 	}
 	parsed := parseHNItem(i)
 	if isStoryLink(parsed) {
 		parsed.index = index
-		fmt.Println("received", index)
-		return parsed, nil
+		ch <- parsed
+		return
 	}
-	return item{}, errors.New("not a story")
+	log.Default().Println("Not a story")
 }
 
 func handler(numStories int, tpl *template.Template) http.HandlerFunc {
@@ -58,30 +59,26 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		var stories []item
 
 		rounds := 0
+		storyCh := make(chan item)
+
 		for len(stories) < numStories {
 
 			itemsToQuery := int(math.Ceil(1.25 * float64(numStories)))
-
-			wg := sync.WaitGroup{}
 
 			for i := rounds * itemsToQuery; i < (rounds+1)*itemsToQuery; i++ {
 				if i > len(ids)-1 {
 					break
 				}
 
-				wg.Add(1)
 				go func() {
-					defer wg.Done()
-					story, err := getStory(client, ids[i], i)
-					if err != nil {
-						fmt.Println("error", err)
-						return
-					}
-					stories = append(stories, story)
+					getStory(ids[i], i, storyCh)
 				}()
 
 			}
-			wg.Wait()
+
+			for i := 0; i < itemsToQuery; i++ {
+				stories = append(stories, <-storyCh)
+			}
 
 			rounds++
 		}
