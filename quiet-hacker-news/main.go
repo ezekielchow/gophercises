@@ -105,15 +105,20 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 }
 
 var (
-	cache    []item
-	expireAt time.Time
+	cacheA        []item
+	cacheB        []item
+	cacheExpireAt time.Time
+	lastRequestAt time.Time
+	usedCache     string
 )
 
 func getCachedStories(numOfStories int) ([]item, error) {
-	if expireAt.Before(time.Now()) {
 
-		// reset time
-		expireAt = time.Now().Add(time.Second * 10)
+	if usedCache == "" {
+		// initialize base cache
+		usedCache = "A"
+		lastRequestAt = time.Now().Add(time.Second * 15)
+		cacheExpireAt = time.Now().Add(time.Second * 10)
 
 		var client hn.Client
 
@@ -123,10 +128,53 @@ func getCachedStories(numOfStories int) ([]item, error) {
 		}
 
 		stories := getStories(ids, numOfStories)
-		cache = stories
+		cacheA = stories
+		return cacheA, nil
 	}
 
-	return cache, nil
+	//if usedCache == 'A' && cached expired, refresh cache B. vice versa
+	if cacheExpireAt.Before(time.Now()) {
+		go func() {
+			// reset cache expiry date
+			cacheExpireAt = time.Now().Add(time.Second * 10)
+
+			var client hn.Client
+
+			ids, err := client.TopItems()
+			if err != nil {
+				log.Fatal("Fail to get top items")
+				return
+			}
+
+			stories := getStories(ids, numOfStories)
+
+			if usedCache == "A" {
+				cacheB = stories
+			} else {
+				cacheA = stories
+			}
+			fmt.Println("cache refreshed")
+		}()
+	}
+
+	// if last request expired, use the other cache
+	if lastRequestAt.Before(time.Now()) {
+		fmt.Println("changing cache")
+
+		lastRequestAt = time.Now().Add(time.Second * 15)
+
+		if usedCache == "A" {
+			return cacheB, nil
+		} else {
+			return cacheA, nil
+		}
+	}
+
+	if usedCache == "A" {
+		return cacheA, nil
+	}
+
+	return cacheB, nil
 }
 
 func isStoryLink(item item) bool {
